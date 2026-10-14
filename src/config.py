@@ -5,4 +5,3 @@ CHUNK_SIZE = 100
 CHUNK_OVERLAP = 20
 EMBEDDING_MODEL = "text-embedding-3-large"
 GENERATE_MODEL = "gpt-4o-mini"
-RAG_PROMPT = "rlm/rag-prompt"
