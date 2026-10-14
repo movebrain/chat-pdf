@@ -10,7 +10,9 @@ with gr.Blocks(title="ChatPDF") as demo:
     c = ui.render()
 
     # inputs 순서 = 함수 매개변수 순서, outputs 순서 = 반환값 순서
-    c.pdf_file.upload(build_db, inputs=[c.pdf_file, c.openai_key], outputs=[c.db_state, c.status])
+    c.pdf_file.upload(
+        build_db, inputs=[c.pdf_file, c.openai_key], outputs=[c.db_state, c.status]
+    )
     ask_inputs = [c.question, c.openai_key, c.db_state]
     c.ask_btn.click(answer, inputs=ask_inputs, outputs=c.output)
     c.question.submit(answer, inputs=ask_inputs, outputs=c.output)
