@@ -53,9 +53,7 @@ chat-pdf/
 ├── docs/
 │   ├── structure.md     # 담당 도메인, 의존 순서, 협업 규칙
 │   └── sources.md       # 참고 자료
-├── eval/                # 평가용 (현재 비어 있음)
-└── samples/
-    └── sample.pdf       # 팀 공용 테스트 PDF
+└── eval/                # 평가용 (현재 비어 있음)
 ```
 
 ## 팀 구성 (2명씩 3파트)
