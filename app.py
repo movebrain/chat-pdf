@@ -3,8 +3,8 @@
 import gradio as gr
 
 from src import ui
-from src.generator import answer
-from src.store import build_db
+from src.db.store import build_db
+from src.rag.generator import answer
 
 with gr.Blocks(title="ChatPDF") as demo:
     c = ui.render()
