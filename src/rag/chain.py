@@ -2,15 +2,21 @@
 
 # 언어 모델 인자의 타입을 표시하는 데 사용한다.
 # 변경: 타입 전용 클래스를 가져오지 않고 실제 llm을 사용한다.
+# 추가: 답변 생성 모델의 이름을 generate_llm으로 통일한다.
+
 # 모델 응답을 문자열로 바꾸는 출력 파서를 가져온다.
 from langchain_core.output_parsers import StrOutputParser
+
 # 검색기 인자의 타입을 표시하는 데 사용한다.
 # 변경: 타입 전용 클래스를 가져오지 않고 실제 retriever를 사용한다.
+# 추가: 전달받는 검색기의 이름을 retriever_from_llm으로 통일한다.
+
 # 체인 타입과 입력을 그대로 전달하는 도구를 가져온다.
 # 변경: 입력이 딕셔너리이므로 lambda로 필요한 값을 꺼낸다.
 
 # 답변 규칙이 담긴 프롬프트 생성 함수를 가져온다.
 from src.rag.prompt import get_prompt
+
 # 검색한 문서 목록을 문자열로 바꾸는 함수를 가져온다.
 from src.rag.retriever import format_docs
 
@@ -18,45 +24,71 @@ from src.rag.retriever import format_docs
 # 검색부터 답변 생성까지 연결하는 함수를 정의한다.
 def make_chatbot(
     # 질문과 관련된 문서를 찾는 실제 검색기를 받는다.
-    retriever,
+    retriever_from_llm,
     # 프롬프트를 받아 답변을 생성하는 실제 모델을 받는다.
-    llm,
-# 문자열을 입력받고 문자열을 출력하는 체인을 반환한다.
+    generate_llm,
 ):
-    """질문 문자열을 받아 답변 문자열을 반환하는 RAG 체인을 만든다.
+    """질문과 대화 기록을 받아 답변 문자열을 반환하는 RAG 체인을 만든다.
 
     처리 순서:
-        질문 → 문서 검색 → 문서 문자열화
-             → 질문과 참고자료로 프롬프트 구성
-             → 모델 응답 생성 → 문자열로 변환
+        입력에서 질문 추출 → 문서 검색 → 문서 문자열화
+        → 질문·참고자료·대화 기록으로 프롬프트 구성
+        → 모델 응답 생성 → 문자열로 변환
+
+    입력:
+        question: 사용자의 질문 문자열. 반드시 전달한다.
+        history: 이전 대화 목록. 생략하면 빈 목록을 사용한다.
 
     추가 설명:
-        기존 문자열 입력을 question, history 딕셔너리로 확장했다.
-        search_question은 검색 전용이며, question은 원래 질문을 유지한다.
+        검색에는 question만 사용한다.
+        history는 답변 프롬프트에 전달한다.
+        이 함수는 대화 기록을 직접 저장하지 않는다.
     """
-    # 추가: 입력은 question과 history를 담은 딕셔너리로 확장한다.
+    # 수업 코드와 같은 이름으로 답변 프롬프트를 준비한다.
+    prompt = get_prompt()
+
+    # 문자열을 입력받고 문자열을 출력하는 체인을 반환한다.
+    # 변경: 입력은 question과 history를 담은 딕셔너리다.
     # 체인을 구성해 반환하며, 여기서 답변을 생성하지는 않는다.
-    return (
+    rag_chain = (
         # 같은 입력 질문을 두 경로로 보내 결과를 묶는다.
+        # 추가: 대화 기록까지 포함해 세 경로로 전달한다.
         {
             # ① 질문으로 문서를 검색하고, ② 문서 목록을 문자열로 변환한다.
             # |는 왼쪽 결과를 오른쪽 처리 단계로 전달한다.
             # 추가: 검색기에는 전체 입력 대신 검색할 질문만 전달한다.
-            "context": (lambda x: x.get("search_question", x["question"])) | retriever | format_docs,
+            "context": (
+                # x는 체인 실행 시 전달받는 입력 딕셔너리다.
+                (lambda x: x["question"])
+                # 전달받은 검색기로 관련 문서를 찾는다.
+                | retriever_from_llm
+                # 검색 문서를 본문과 출처가 담긴 문자열로 정리한다.
+                | format_docs
+            ),
 
             # ③ 입력 질문을 바꾸지 않고 그대로 전달한다.
             # 검색용 참고자료와 별도로 원래 질문을 보존한다.
             "question": lambda x: x["question"],
+
             # 추가: 대화 기록을 프롬프트의 history 자리로 전달한다.
+            # history 키가 없으면 빈 목록을 사용한다.
             "history": lambda x: x.get("history", []),
         }  # context와 question을 담은 딕셔너리가 된다.
+        # 추가: history도 함께 담겨 다음 단계로 전달된다.
+
         # ④ context와 question을 받아 프롬프트를 구성한다.
         # 함수를 호출해 체인에서 사용할 프롬프트 객체를 얻는다.
-        | get_prompt()
+        # 추가: 위에서 준비한 prompt에 세 입력값을 채운다.
+        | prompt
+
         # ⑤ 전달받은 언어 모델로 답변을 생성한다.
         # 앞 단계에서 완성한 프롬프트를 모델에 전달한다.
-        | llm
+        | generate_llm
+
         # ⑥ 모델 응답을 문자열로 변환한다.
         # 응답에서 텍스트를 꺼내 다음 코드가 쓰기 쉽게 만든다.
         | StrOutputParser()
-    )  # 연결된 전체 체인을 반환한다.
+    )
+
+    # 연결된 전체 체인을 반환한다.
+    return rag_chain
