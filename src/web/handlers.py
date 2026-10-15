@@ -110,7 +110,10 @@ def _search_box(category: str | None, used_mode: str, requested_mode: str) -> di
     label = MODE_LABELS.get(used_mode, used_mode)
     if category:
         # 제목(접힌 상태에서도 보이는 부분)에 분류된 카테고리 키와 한글 이름을 함께 보여준다
-        title = f"🔎 분류된 카테고리: {category} · {CATEGORY_NAMES.get(category, category)}"
+        # "~"가 두 번 나오면 마크다운 취소선(~~)으로 렌더링되므로 화면에서는 "-"로 바꿔 보여준다
+        # 예: "(23~25쪽, 제101~119조)" → "(23-25쪽, 제101-119조)"
+        name = CATEGORY_NAMES.get(category, category).replace("~", "-")
+        title = f"🔎 분류된 카테고리: {category} · {name}"
         detail = (
             f"질문을 `{category}` 카테고리로 분류해, metadata의 category가 `{category}`인 "
             f"학칙 청크만 검색했습니다. (검색 방식: {label})"
