@@ -32,6 +32,7 @@ python app.py        # http://127.0.0.1:7860
 
 - API 키는 **화면의 입력창**에 넣습니다. 키를 입력한 뒤에 PDF를 올려야 합니다.
 - `.env`는 로컬 테스트용입니다 (`.env.example` 참고, 커밋 금지).
+- 청크 크기·오버랩·검색 모드는 `.env`의 `CHUNK_SIZE`, `CHUNK_OVERLAP`, `SEARCH_MODE`로 바꿉니다. 값이 없으면 `src/config.py`의 기본값(1200 / 120 / `basic`)을 씁니다.
 - `langchain<1.0`으로 고정되어 있습니다. 1.0부터 `langchain.retrievers.multi_query` 경로가 바뀝니다.
 
 ## 폴더 구조
@@ -98,4 +99,4 @@ RAG는 검색 담당 1명, 프롬프트와 체인 담당 1명(추가 인원), �
 | `No module named 'langchain.retrievers.multi_query'` | `langchain<1.0`으로 고정 |
 | 업로드했는데 "API 키를 먼저 입력" | 키 입력 후 PDF를 다시 업로드 |
 | 함수 인자가 뒤섞임 | `inputs` 순서를 함수 매개변수 순서와 맞추기 |
-| 답변이 엉뚱함 | `config.CHUNK_SIZE`를 500~1000으로 조정 |
+| 답변이 엉뚱함 | `.env`의 `CHUNK_SIZE`를 800~1200으로, `SEARCH_MODE`를 `basic`으로 조정 |

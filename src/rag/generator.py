@@ -31,8 +31,8 @@ import gradio as gr
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 
-# 공유 설정. 여기서는 GENERATE_MODEL(생성 모델명)만 읽는다.
-# 모델명을 바꾸려면 이 파일이 아니라 src/config.py를 수정한다.
+# 공유 설정. 여기서는 GENERATE_MODEL(생성 모델명)과 SEARCH_MODE(기본 검색 모드)를 읽는다.
+# 모델명을 바꾸려면 이 파일이 아니라 src/config.py를, 검색 모드는 .env의 SEARCH_MODE를 수정한다.
 from src import config
 
 # 체인 조립 함수. 입력 dict의 키(question/history/선택적 search_question)는 chain.py가 정한 계약이다.
@@ -44,19 +44,15 @@ from src.rag.chain import make_chatbot
 from src.rag.retriever import get_retriever
 
 
-# ---------------------------------------------------------------------------
-# 이 파일이 소유하는 튜닝 값
-# 여러 파일이 공유하는 값이 아니므로 config.py가 아니라 여기에 둔다.
-# ---------------------------------------------------------------------------
-
-# 검색 모드. retriever.get_retriever()의 mode 인자로 그대로 전달된다.
-#   "basic":       질문과 가장 비슷한 4개
+# 기본 검색 모드. retriever.get_retriever()의 mode 인자로 그대로 전달된다.
+# 값은 .env의 SEARCH_MODE에서 오며(config.py), 웹 UI·manual_chat이 이 이름으로 가져다 쓴다.
+#   "basic":       질문과 가장 비슷한 4개 (기본값, 평가에서 mmr보다 정답 근거를 더 많이 찾음)
 #   "mmr":         후보 10개 중 서로 겹치지 않는 3개 (카테고리 필터 없음)
 #   "multi_query": LLM으로 질문을 여러 개로 확장해 검색 (LLM 호출이 늘어 느리고 비쌈)
 #   "policy", "policy_mmr": metadata의 category가 get_retriever의 category 인자와 같은 문서만 검색.
 #       category를 고르는 choose_category() 호출이 아직 연결되어 있지 않아 쓰지 않는다.
 # 알 수 없는 모드를 넣으면 get_retriever()가 ValueError를 낸다.
-SEARCH_MODE = "mmr"
+SEARCH_MODE = config.SEARCH_MODE
 
 
 def answer(
