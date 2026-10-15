@@ -24,8 +24,8 @@ DESCRIPTION = (
 
 # 검색 설정의 선택지: (화면에 보이는 이름, retriever.get_retriever()의 mode 값)
 SEARCH_MODES = [
-    ("MMR: 서로 겹치지 않는 3개 (기본)", "mmr"),
     ("기본: 가장 비슷한 4개", "basic"),
+    ("MMR: 서로 겹치지 않는 3개", "mmr"),
     ("질문 확장: 여러 표현으로 검색 (느리고 비용 증가)", "multi_query"),
 ]
 
