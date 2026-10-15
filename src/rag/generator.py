@@ -63,6 +63,7 @@ def answer(
     question: str,
     db: Chroma | None,
     history: list[dict] | None = None,
+    mode: str | None = None,
 ) -> Iterator[str]:
     """질문 한 건을 처리하고 누적된 답변 문자열을 순서대로 yield 한다.
 
@@ -78,8 +79,11 @@ def answer(
             None이면 DB가 준비되지 않은 것이다.
         history: 이전 대화(선택). 형식은 ``[{"role": "user" | "assistant", "content": str}, ...]``
             이며 **현재 질문은 포함하지 않는다**(현재 질문은 question으로 따로 받는다).
-            gr.Chatbot(type="messages")의 값이 이 형식이다. 변환/정리는 호출하는 쪽의
-            책임이고 여기서는 검증하지 않는다. CLI처럼 대화 기록이 없으면 생략한다.
+            Gradio 6의 gr.Chatbot은 content를 블록 리스트로 주므로 문자열로 바꾸는 일은
+            호출하는 쪽(src/web/handlers.py)의 책임이고 여기서는 검증하지 않는다.
+            CLI처럼 대화 기록이 없으면 생략한다.
+        mode: 검색 모드(선택). retriever.get_retriever()의 mode로 전달된다.
+            None이면 이 파일의 SEARCH_MODE를 쓴다. 웹 UI의 "검색 설정"에서 넘어온다.
 
     API 키는 인자로 받지 않고 환경변수 OPENAI_API_KEY에서 읽는다(ChatOpenAI가 직접 읽는다).
     환경변수 로드(.env)는 app.py가 담당한다.
@@ -128,9 +132,9 @@ def answer(
     # ③ 검색기 생성 → retriever.py의 get_retriever()
     # db: 검색 대상 Chroma 벡터DB (store.build_db()가 만든 것)
     # llm: multi_query 모드에서만 사용되고, 다른 모드에서는 무시된다.
-    # 검색 방식을 바꾸려면 이 파일 위쪽의 SEARCH_MODE 상수만 수정하면 된다.
+    # mode 인자가 없으면 이 파일 위쪽의 SEARCH_MODE 상수(기본값)를 쓴다.
     # ------------------------------------------------------------------
-    retriever = get_retriever(db, llm, mode=SEARCH_MODE)
+    retriever = get_retriever(db, llm, mode=mode or SEARCH_MODE)
 
     # ------------------------------------------------------------------
     # ④ 체인 조립 → chain.py의 make_chatbot()
