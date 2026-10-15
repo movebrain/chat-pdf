@@ -1,102 +1,240 @@
-# 📄 ChatPDF
+# 🎓 서울대학교 학칙 안내 챗봇 (ChatPDF)
 
-PDF를 업로드하면 내용을 기반으로 질문에 답해주는 챗봇입니다.
-**LangChain**(RAG)과 **Gradio**로 구현합니다.
+서울대학교 학칙 PDF를 근거로 학사 질문에 답하는 챗봇입니다.
+질문과 관련된 학칙 조각을 찾아 답변하고, 답 끝에 근거 쪽수를 `(출처: 서울대학교 학칙 p.16)` 형태로 표시합니다.
+학칙에 없는 내용은 "제공된 참고자료에서는 확인되지 않습니다"라고 답합니다.
 
-## 동작 방식
+**LangChain**(RAG) + **Chroma**(벡터DB) + **OpenAI** + **Gradio**로 구현했습니다.
 
-| 단계 | 하는 일 | 위치 | 함수 |
-| --- | --- | --- | --- |
-| ① Load | PDF 읽기 | `src/db/loader.py` | `load_and_split()` |
-| ② Split | 청크로 분할 | `src/db/loader.py` | `load_and_split()` |
-| ③ Embed | 임베딩 생성 | `src/db/store.py` | `build_db()` |
-| ④ Store | Chroma에 저장 | `src/db/store.py` | `build_db()` |
-| ⑤ Retrieve | 관련 청크 검색 | `src/rag/retriever.py` | `get_retriever()` |
-| ⑥ Generate | 검색 체인을 실행해 답변 생성 (스트리밍) | `src/rag/generator.py` | `answer()` |
+## 주요 기능
 
-```
-PDF 업로드 ──▶ ①②③④ build_db() ──▶ gr.State(db)
-                                        │
-질문 입력  ──▶ ⑤ 검색 ──▶ prompt/chain ──▶ ⑥ answer() ──▶ 화면에 실시간 출력
-```
+- **학칙 기반 답변**: 참고자료(검색된 학칙 조각)만 근거로 답하고, 근거 쪽수를 표시합니다.
+- **채팅 형태 대화**: 이전 대화를 기억해 "그럼 신청은 언제까지 해?" 같은 후속 질문을 이어서 이해합니다.
+- **실시간 답변 출력**: 답변이 생성되는 대로 화면에 채워집니다.
+- **검색 방식 5가지 선택**: 유사도, 주제 필터, MMR, 주제 필터+MMR, 질문 확장.
+- **질문 주제 자동 분류**: 주제 필터를 고르면 AI가 질문을 학칙 주제(7개)로 분류하고, 그 주제의 조각만 검색합니다. 분류 결과는 질문 바로 아래에 표시됩니다.
 
 ## 빠른 시작
 
-Python 3.10 이상, OpenAI API Key가 필요합니다.
+Python 3.10 이상과 OpenAI API 키가 필요합니다.
 
-```bash
-python -m venv .venv && source .venv/bin/activate
+**1. 가상환경과 패키지 설치** (처음 한 번. `chromadb`, `gradio` 등이 커서 몇 분 걸립니다)
+
+```powershell
+# Windows (PowerShell)
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
-python app.py        # http://127.0.0.1:7860
 ```
 
-- API 키는 **화면의 입력창**에 넣습니다. 키를 입력한 뒤에 PDF를 올려야 합니다.
-- `.env`는 로컬 테스트용입니다 (`.env.example` 참고, 커밋 금지).
-- 청크 크기·오버랩·검색 모드는 `.env`의 `CHUNK_SIZE`, `CHUNK_OVERLAP`, `SEARCH_MODE`로 바꿉니다. 값이 없으면 `src/config.py`의 기본값(1200 / 120 / `basic`)을 씁니다.
-- `langchain<1.0`으로 고정되어 있습니다. 1.0부터 `langchain.retrievers.multi_query` 경로가 바뀝니다.
+```bash
+# macOS / Linux
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**2. API 키 설정**: `.env.example`을 `.env`로 복사하고 `OPENAI_API_KEY`를 채웁니다. `.env`는 커밋하지 않습니다.
+
+**3. 실행**
+
+```bash
+python app.py        # 브라우저에서 http://127.0.0.1:7860
+```
+
+페이지가 열리면 `data/서울대학교 학칙.pdf`를 자동으로 불러옵니다. 처음 한 번은 임베딩 때문에 몇 초 걸리고, 이후 접속부터는 만들어 둔 DB를 재사용합니다.
+
+**터미널에서 테스트하기** (웹 화면 없이)
+
+```bash
+python -m tests.manual_chat
+```
+
+| 입력 | 동작 |
+| --- | --- |
+| 질문 | 답변을 실시간 출력. 이전 대화가 함께 전달됨 |
+| `/debug` | 실제로 검색된 조각(page, category, 본문)과 LLM에 들어간 참고자료를 함께 출력 |
+| `/reset` | 대화 기록 초기화 |
+| `exit`, `q`, `종료` | 종료 |
+
+## 동작 방식
+
+```
+[앱 시작 / 페이지 접속]
+  data/서울대학교 학칙.pdf ──▶ ① Load ② Split ③ Embed ④ Store ──▶ Chroma DB (프로세스당 1번, 모두 공유)
+                                    load_and_split()   build_db()
+
+[질문할 때마다]
+  질문 ──▶ ⑤ 주제 분류 (주제 필터 모드일 때만) ──▶ ⑥ 검색 ──▶ ⑦ 프롬프트 + LLM ──▶ 답변 (실시간)
+            choose_category()                      get_retriever()  make_chatbot()      answer()
+```
+
+| 단계 | 하는 일 | 위치 | 함수 |
+| --- | --- | --- | --- |
+| ① Load | PDF를 쪽 단위로 읽기 | `src/db/loader.py` | `load_and_split()` |
+| ② Split | `CHUNK_SIZE` 크기로 자르고, 쪽 번호로 `category` 메타데이터 부여 | `src/db/loader.py` | `load_and_split()` |
+| ③ Embed | OpenAI 임베딩 생성 | `src/db/store.py` | `build_db()` |
+| ④ Store | 인메모리 Chroma에 저장 | `src/db/store.py` | `build_db()` |
+| ⑤ 주제 분류 | 질문을 LLM에 보내 주제 키 하나를 받음 (실패하면 `None`) | `src/rag/chain.py` | `choose_category()` |
+| ⑥ Retrieve | 검색 방식에 맞는 검색기 생성, 필요하면 주제로 필터링 | `src/rag/retriever.py` | `get_retriever()` |
+| ⑦ Generate | 검색된 조각 + 대화 기록 + 질문으로 프롬프트를 만들어 답변 생성 | `src/rag/chain.py`, `prompt.py`, `generator.py` | `make_chatbot()`, `get_prompt()`, `answer()` |
+
+LLM에 전달되는 학칙 내용은 검색된 조각 3~4개뿐입니다. 주제 분류 단계에는 질문과 주제 목록만 보내고 학칙 본문은 보내지 않습니다.
+
+## 검색 방식
+
+화면 왼쪽 **검색 설정**에서 고릅니다. 기본값은 (d)입니다.
+
+| 화면 이름 | `mode` 값 | 동작 |
+| --- | --- | --- |
+| (a) 유사도 | `basic` | 질문과 가장 비슷한 조각 4개 |
+| (b) 주제 필터 | `policy` | AI가 분류한 주제 안에서 가장 비슷한 4개 |
+| (c) MMR | `mmr` | 후보 10개 중 서로 겹치지 않는 3개 |
+| (d) 주제 필터+MMR | `policy_mmr` | 분류한 주제 안에서 겹치지 않는 3개 |
+| (e) 질문 확장 | `multi_query` | AI가 질문을 여러 표현으로 바꿔 검색 후 합침 (느리고 비용 증가) |
+
+(b)(d)에서 주제를 분류하지 못하면(예: "맛집 추천해줘") 필터 없는 (a)(c)로 바꿔 학칙 전체에서 검색합니다.
+
+### 주제(category) 7가지
+
+`src/db/categories.py`에서 **쪽 번호 → 주제**로 정해 둔 값입니다. `loader.py`가 조각마다 이 값을 붙입니다.
+
+| 키 | 주제 | 쪽 |
+| --- | --- | --- |
+| `general` | 총칙·교육조직·교원 | 1-2 |
+| `organization` | 총장·처·위원회·부속시설 | 3-11 |
+| `calendar_admission` | 학기·수업연한·입학·편입학·전과 | 12-15 |
+| `status_curriculum` | 휴학·복학·제적·수강·학점·전공이수·졸업학점 | 16-19 |
+| `exam_graduation` | 성적·수료·졸업·학위 | 20-21 |
+| `special` | 계절수업·공개강좌·위탁생·학생회 | 22 |
+| `tuition_discipline` | 학생의무·장학·징계·학사경고·유급·등록금·학칙개정 | 23-25 |
+
+## 설정
+
+`.env`(또는 환경변수)로 바꿉니다. 비워 두면 `src/config.py`의 기본값을 씁니다.
+
+| 이름 | 기본값 | 설명 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | (필수) | 임베딩과 답변 생성에 사용. 화면에 입력하지 않고 환경변수에서 읽습니다 |
+| `CHUNK_SIZE` | `1200` | 조각 하나의 글자 수 |
+| `CHUNK_OVERLAP` | `120` | 조각끼리 겹치는 글자 수 |
+| `SEARCH_MODE` | `basic` | ⚠️ 현재 적용되지 않습니다. 아래 [알려진 이슈](#알려진-이슈) 참고 |
+
+코드에서 바꾸는 값:
+
+| 값 | 위치 |
+| --- | --- |
+| PDF 경로 (`PDF_PATH`), 임베딩·생성 모델명 | `src/config.py` |
+| 화면 기본 검색 방식 (`SEARCH_MODE = "policy_mmr"`) | `src/rag/generator.py` |
+| 제목, 설명, 질문 예시, 검색 방식 이름 | `src/web/layout.py` 맨 위 상수 |
+| 답변 규칙(역할, 근거, 출처 형식) | `src/rag/prompt.py` |
+| 주제 분류 지침 | `config.ROUTER_PROMPT`를 추가하면 `choose_category()`가 사용 (없으면 기본 문구) |
+
+**다른 PDF로 바꾸려면** `PDF_PATH`만으로는 부족합니다. `categories.py`의 쪽 번호→주제 표와, `retriever.py`의 `format_docs()`에 고정된 문서명 "서울대학교 학칙"도 함께 바꿔야 합니다.
 
 ## 폴더 구조
 
 ```
 chat-pdf/
-├── app.py               # 진입점: 화면 + 처리 함수를 이벤트로 연결 (HF Spaces는 루트의 app.py 실행)
-├── requirements.txt     # 배포용 패키지 목록
-├── .env.example         # 로컬 테스트용 키 예시
+├── app.py                  # 진입점: .env를 읽고 웹 UI 실행 (python app.py)
+├── requirements.txt        # 패키지 목록 (langchain<1.0 고정)
+├── .env.example            # 환경변수 예시 (복사해서 .env로 사용, .env는 커밋 금지)
+├── data/
+│   └── 서울대학교 학칙.pdf  # 챗봇이 불러오는 기준 문서
 ├── src/
-│   ├── config.py        # 청크 크기, 모델명 등 공용 설정값
-│   ├── ui.py            # gr.Blocks 화면
-│   ├── db/              # PDF → 벡터DB
-│   │   ├── loader.py    #   load_and_split()
-│   │   └── store.py     #   build_db()
-│   └── rag/             # 벡터DB → 답변
-│       ├── retriever.py #   get_retriever(), format_docs()
-│       ├── prompt.py    #   get_prompt(): 역할·근거·출처 규칙
-│       ├── chain.py     #   make_chatbot(): LCEL RAG 체인
-│       └── generator.py #   answer(): 모델 준비와 Gradio 스트리밍
+│   ├── config.py           # 공용 설정: PDF 경로, 청크 크기, 모델명 (.env 읽기 포함)
+│   ├── db/                 # PDF → 벡터DB
+│   │   ├── loader.py       #   load_and_split(): 읽기·분할·category 부여
+│   │   ├── categories.py   #   쪽 번호 → 주제 표, 주제 이름, 쪽별 조 범위
+│   │   └── store.py        #   build_db(): 임베딩 → 인메모리 Chroma
+│   ├── rag/                # 벡터DB → 답변
+│   │   ├── retriever.py    #   get_retriever(): 검색 방식 5가지 / format_docs(): 참고자료 문자열
+│   │   ├── prompt.py       #   get_prompt(): 역할·근거·출처·대화기록 규칙
+│   │   ├── chain.py        #   choose_category(): 주제 분류 / make_chatbot(): LCEL RAG 체인
+│   │   └── generator.py    #   answer(): 분류 → 검색 → 체인 실행 → 스트리밍
+│   ├── web/                # Gradio 웹 UI
+│   │   ├── layout.py       #   화면 배치와 화면 문구
+│   │   ├── handlers.py     #   이벤트 함수: DB 불러오기, 질문 답변, 분류 결과 표시, 대화 지우기
+│   │   └── app.py          #   build_demo(): 화면과 이벤트 연결
+│   └── ui.py               # (미사용) 예전 업로드 방식 화면. 현재 어디서도 import하지 않음
+├── tests/
+│   ├── test_store.py       # build_db() 단위 테스트 (API 키 불필요)
+│   └── manual_chat.py      # 터미널 대화 테스트 (실제 PDF·API 사용)
+├── eval/
+│   └── questions.jsonl     # 평가용 질문 20개 (정답 조문·쪽·핵심 사실 포함)
 ├── docs/
-│   ├── structure.md     # 담당 도메인, 의존 순서, 협업 규칙
-│   └── sources.md       # 참고 자료
-├── eval/                # 평가용 (현재 비어 있음)
-└── samples/
-    └── sample.pdf       # 팀 공용 테스트 PDF
+│   ├── structure.md        # 파일 책임과 함수 계약 (일부는 이전 계약 기준)
+│   ├── store/plan.md       # build_db 계약 변경 계획
+│   └── sources.md          # 참고 자료
+└── Claude outputs/         # 기획서 점검 문서
 ```
-
-## 팀 구성
-
-| 파트 | 폴더 | 맡은 단계 | 넘겨주는 값 |
-| --- | --- | --- | --- |
-| **Gradio** | `src/ui.py`, `app.py` | 화면, 이벤트 연결 | — |
-| **DB 저장** | `src/db/` | ① ~ ④ | `db` (Chroma) |
-| **RAG 검색** | `src/rag/retriever.py` | ⑤ 검색·문서 포매팅 | 검색기 / 문맥 문자열 |
-| **RAG 체인** | `src/rag/prompt.py`, `src/rag/chain.py` | 프롬프트·LCEL 연결 | 질문→답변 Runnable |
-| **RAG 실행** | `src/rag/generator.py` | 모델 생성·스트리밍 | 답변 텍스트 (yield) |
-
-RAG는 검색 담당 1명, 프롬프트와 체인 담당 1명(추가 인원), 실행·스트리밍 담당 1명으로 나눌 수 있습니다.
-파트 사이의 접점은 **함수 시그니처**로 고정하고, 시그니처를 바꿀 때는 영향받는 담당자와 먼저 합의합니다.
-자세한 역할 및 인자 계약은 [docs/structure.md](docs/structure.md)를 참고하세요.
 
 ## 모듈 간 인터페이스
 
 | 함수 | 입력 | 반환 |
 | --- | --- | --- |
-| `load_and_split` | `pdf_path` | `list[Document]` |
-| `build_db` | `pdf_path`, `openai_key` | `(Chroma \| None, str)` → `outputs=[db_state, status]` 순서 |
-| `get_retriever` | `db`, `llm` | `BaseRetriever` |
-| `format_docs` | `docs` | `str` |
-| `get_prompt` | — | `ChatPromptTemplate` (`context`, `question` 변수) |
-| `make_chatbot` | `retriever`, `llm` | `Runnable[str, str]` |
-| `answer` | `question`, `openai_key`, `db` | `Iterator[str]` (yield마다 화면 갱신) |
-| `render` | — | `SimpleNamespace` (`openai_key`, `pdf_file`, `status`, `db_state`, `question`, `ask_btn`, `output`) |
+| `load_and_split` | `pdf_path` | `list[Document]` (metadata: `source`, `page`(0부터), `category`) |
+| `build_db` | `pdf_path` | `Chroma` (키는 환경변수에서 읽음, 실패 시 예외) |
+| `choose_category` | `question`, `llm` | 주제 키 `str` 또는 `None` |
+| `get_retriever` | `db`, `llm`, `mode="basic"`, `category=...` | 검색기 (`mode`가 틀리면 `ValueError`) |
+| `format_docs` | `docs` | `str` (`[서울대학교 학칙 p.N]` + 본문, 끝에 `[검색된 참고자료 목록]`) |
+| `get_prompt` | — | `ChatPromptTemplate` (`context`, `history`, `question`) |
+| `make_chatbot` | `retriever`, `llm` | 입력 `{"question", "history"}` → 답변 문자열을 내는 Runnable |
+| `answer` | `question`, `db`, `history=None`, `mode=None`, `on_search=None` | `Iterator[str]` (누적 답변) |
 
-> 구현 전 함수는 `NotImplementedError`를 던집니다.
-> Gradio 이벤트의 `inputs=[...]` 순서는 함수 매개변수 순서와 반드시 같아야 합니다.
+- `history` 형식: `[{"role": "user" | "assistant", "content": str}, ...]`. 현재 질문은 넣지 않습니다.
+- `on_search(category, mode)`: 검색 범위가 정해지면 첫 답변 조각보다 먼저 한 번 호출됩니다. 화면의 "🔎 분류된 카테고리" 표시가 이 값을 씁니다.
+- `get_retriever`의 `category` 기본값은 `"tuition_discipline"`입니다. 필터 없이 쓰려면 `category=None`을 명시하세요.
+- 함수 시그니처를 바꿀 때는 영향받는 담당자와 먼저 합의합니다.
+
+## 팀 구성
+
+| 파트 | 파일 | 맡은 단계 |
+| --- | --- | --- |
+| **Gradio** | `app.py`, `src/web/` | 화면, 이벤트 연결 |
+| **DB 저장** | `src/db/` | ① ~ ④, 주제 분류표 |
+| **RAG 검색** | `src/rag/retriever.py` | ⑥ 검색 방식, 참고자료 포매팅 |
+| **RAG 체인** | `src/rag/prompt.py`, `src/rag/chain.py` | 프롬프트, 주제 분류, LCEL 연결 |
+| **RAG 실행** | `src/rag/generator.py` | 모델 생성, 단계 조립, 스트리밍 |
+
+## 테스트
+
+```bash
+python -m unittest discover -s tests -t .   # 단위 테스트 (API 키 불필요)
+python -m tests.manual_chat                 # 실제 PDF·API로 대화 테스트
+```
+
+## 알려진 한계
+
+실제 질문으로 확인한 한계입니다. 시연할 때 참고하세요.
+
+| 유형 | 예시 질문 | 증상 | 원인 |
+| --- | --- | --- | --- |
+| 답이 여러 주제에 걸침 | 졸업하려면 몇 학점, 평점 몇 이상? | 주제 필터에서 일부 근거가 빠져 불완전하거나 틀린 답 | 주제가 **쪽 단위**로 붙어 있음. 전체 검색 (a)로는 정확히 답함 |
+| 주제가 섞인 쪽의 조항 | 시험은 어떻게 실시하나요? (제84조, p.19) | 문서에 있는데 "확인되지 않습니다" | p.19는 `status_curriculum`이라 `exam_graduation` 필터에서 빠짐 (`categories.py` 주석의 예외) |
+| 개인 상황 판단 | 평점이 1.5인데 제적되나요? | 근거 없는 추론으로 틀린 결론 | 관련 조항(학사경고, p.23)이 필터에서 빠지고, 모델이 다른 조항으로 추론 |
+| 비슷한 조항 | 학교 잠깐 쉬고 싶은데 어떻게 해요? | 휴학 절차에 복학 규정이 섞임 | 휴학 신청 조항(p.15)이 필터에서 빠짐 |
+| 목록 전체 | 위원회를 모두 알려줘 | 일부만 나열하고 전체인 것처럼 답함 | 조각을 3~4개만 가져오는 구조 |
+| 개수 세기 | 학칙은 총 몇 조인가요? | "확인되지 않습니다" | 문서 전체를 세는 질문은 검색 기반으로 답할 수 없음 |
+| 영어 질문 | How many semesters ...? | 내용은 맞지만 한국어로 답함 | 프롬프트가 한국어 존댓말로 고정 |
+
+잘 처리되는 질문: 문서에 없는 내용(등록금 액수, 기숙사), 프롬프트 주입("이전 지시 무시하고…"), 조 번호 질문(제67조), 후속 질문.
+
+## 알려진 이슈
+
+- **`.env`의 `SEARCH_MODE`가 적용되지 않습니다.** `config.SEARCH_MODE`(기본 `basic`)를 읽는 코드가 없고, 화면 기본값은 `generator.py`의 `SEARCH_MODE = "policy_mmr"`입니다. 위 한계 대부분이 주제 필터에서 생기므로 기본값을 `config.SEARCH_MODE`로 맞출지 팀에서 정해야 합니다.
+- **`src/ui.py`는 쓰이지 않습니다.** 웹 UI는 `src/web/`로 옮겼습니다.
+- **`docs/structure.md`의 일부 계약이 예전 기준입니다** (`answer(question, openai_key, db)` 등). 최신 시그니처는 위 [모듈 간 인터페이스](#모듈-간-인터페이스)를 따릅니다.
 
 ## 자주 나오는 오류
 
 | 증상 | 해결 |
 | --- | --- |
+| VS Code에서 `Import "gradio" could not be resolved` | 코드 문제가 아님. `Ctrl+Shift+P` → `Python: Select Interpreter` → `.venv` 선택 |
+| `ModuleNotFoundError: No module named 'gradio'` 등 | 가상환경 활성화 확인 (`(.venv)` 표시). 안 되어 있으면 `.venv\Scripts\activate` |
+| `pip install`이 오래 걸림 | 정상. 처음 한 번만 오래 걸림 |
+| 화면에 "❌ OPENAI_API_KEY 환경변수가 없습니다" | 프로젝트 루트에 `.env`를 만들고 키 입력 후 재실행 |
+| 화면에 "❌ PDF 파일이 없습니다" | `data/서울대학교 학칙.pdf` 위치 확인 (`config.PDF_PATH`) |
+| `환경변수 CHUNK_SIZE는 0 이상의 정수여야 합니다` | `.env`의 `CHUNK_SIZE`, `CHUNK_OVERLAP` 값 확인 |
 | `sqlite3 version ... unsupported` (배포 서버) | `requirements.txt`에 `pysqlite3-binary` 추가 |
-| `No module named 'langchain.retrievers.multi_query'` | `langchain<1.0`으로 고정 |
-| 업로드했는데 "API 키를 먼저 입력" | 키 입력 후 PDF를 다시 업로드 |
-| 함수 인자가 뒤섞임 | `inputs` 순서를 함수 매개변수 순서와 맞추기 |
-| 답변이 엉뚱함 | `.env`의 `CHUNK_SIZE`를 800~1200으로, `SEARCH_MODE`를 `basic`으로 조정 |
+| `No module named 'langchain.retrievers.multi_query'` | `langchain<1.0` 유지 (1.0부터 경로가 바뀜) |
+| 답변이 엉뚱하거나 "확인되지 않습니다"가 많음 | 검색 설정을 (a) 유사도로 바꿔 비교. `CHUNK_SIZE`를 800~1200으로 |
