@@ -44,8 +44,8 @@ Keep title concise and descriptive, and keep body easy to scan with bullets whil
 
 1. Collect PR context from git diff and commit history.
 2. Draft the Korean title from the major changes.
-3. Fill `assets/pr-content-format-ko.md` with concrete bullets.
-4. Open PR with `gh pr create --title --body-file`.
+3. Copy the template from .claude/skills/create-pull-request/assets/pr-content-format-ko.md to a temporary file (e.g., pr-body.md) and fill it with concrete bullets.
+4. Open PR with gh pr create --title --body-file pr-body.md and then delete the temporary file.
 
 Use these commands when needed:
 
