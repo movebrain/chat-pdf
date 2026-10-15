@@ -202,39 +202,3 @@ chat-pdf/
 python -m unittest discover -s tests -t .   # 단위 테스트 (API 키 불필요)
 python -m tests.manual_chat                 # 실제 PDF·API로 대화 테스트
 ```
-
-## 알려진 한계
-
-실제 질문으로 확인한 한계입니다. 시연할 때 참고하세요.
-
-| 유형 | 예시 질문 | 증상 | 원인 |
-| --- | --- | --- | --- |
-| 답이 여러 주제에 걸침 | 졸업하려면 몇 학점, 평점 몇 이상? | 주제 필터에서 일부 근거가 빠져 불완전하거나 틀린 답 | 주제가 **쪽 단위**로 붙어 있음. 전체 검색 (a)로는 정확히 답함 |
-| 주제가 섞인 쪽의 조항 | 시험은 어떻게 실시하나요? (제84조, p.19) | 문서에 있는데 "확인되지 않습니다" | p.19는 `status_curriculum`이라 `exam_graduation` 필터에서 빠짐 (`categories.py` 주석의 예외) |
-| 개인 상황 판단 | 평점이 1.5인데 제적되나요? | 근거 없는 추론으로 틀린 결론 | 관련 조항(학사경고, p.23)이 필터에서 빠지고, 모델이 다른 조항으로 추론 |
-| 비슷한 조항 | 학교 잠깐 쉬고 싶은데 어떻게 해요? | 휴학 절차에 복학 규정이 섞임 | 휴학 신청 조항(p.15)이 필터에서 빠짐 |
-| 목록 전체 | 위원회를 모두 알려줘 | 일부만 나열하고 전체인 것처럼 답함 | 조각을 3~4개만 가져오는 구조 |
-| 개수 세기 | 학칙은 총 몇 조인가요? | "확인되지 않습니다" | 문서 전체를 세는 질문은 검색 기반으로 답할 수 없음 |
-| 영어 질문 | How many semesters ...? | 내용은 맞지만 한국어로 답함 | 프롬프트가 한국어 존댓말로 고정 |
-
-잘 처리되는 질문: 문서에 없는 내용(등록금 액수, 기숙사), 프롬프트 주입("이전 지시 무시하고…"), 조 번호 질문(제67조), 후속 질문.
-
-## 알려진 이슈
-
-- **`.env`의 `SEARCH_MODE`가 적용되지 않습니다.** `config.SEARCH_MODE`(기본 `basic`)를 읽는 코드가 없고, 화면 기본값은 `generator.py`의 `SEARCH_MODE = "policy_mmr"`입니다. 위 한계 대부분이 주제 필터에서 생기므로 기본값을 `config.SEARCH_MODE`로 맞출지 팀에서 정해야 합니다.
-- **`src/ui.py`는 쓰이지 않습니다.** 웹 UI는 `src/web/`로 옮겼습니다.
-- **`docs/structure.md`의 일부 계약이 예전 기준입니다** (`answer(question, openai_key, db)` 등). 최신 시그니처는 위 [모듈 간 인터페이스](#모듈-간-인터페이스)를 따릅니다.
-
-## 자주 나오는 오류
-
-| 증상 | 해결 |
-| --- | --- |
-| VS Code에서 `Import "gradio" could not be resolved` | 코드 문제가 아님. `Ctrl+Shift+P` → `Python: Select Interpreter` → `.venv` 선택 |
-| `ModuleNotFoundError: No module named 'gradio'` 등 | 가상환경 활성화 확인 (`(.venv)` 표시). 안 되어 있으면 `.venv\Scripts\activate` |
-| `pip install`이 오래 걸림 | 정상. 처음 한 번만 오래 걸림 |
-| 화면에 "❌ OPENAI_API_KEY 환경변수가 없습니다" | 프로젝트 루트에 `.env`를 만들고 키 입력 후 재실행 |
-| 화면에 "❌ PDF 파일이 없습니다" | `data/서울대학교 학칙.pdf` 위치 확인 (`config.PDF_PATH`) |
-| `환경변수 CHUNK_SIZE는 0 이상의 정수여야 합니다` | `.env`의 `CHUNK_SIZE`, `CHUNK_OVERLAP` 값 확인 |
-| `sqlite3 version ... unsupported` (배포 서버) | `requirements.txt`에 `pysqlite3-binary` 추가 |
-| `No module named 'langchain.retrievers.multi_query'` | `langchain<1.0` 유지 (1.0부터 경로가 바뀜) |
-| 답변이 엉뚱하거나 "확인되지 않습니다"가 많음 | 검색 설정을 (a) 유사도로 바꿔 비교. `CHUNK_SIZE`를 800~1200으로 |
