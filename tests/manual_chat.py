@@ -73,20 +73,13 @@ def main() -> int:
         if not question:
             continue
 
-        if debug:
-            # generator.answer()와 같은 모드로 검색해, retriever가 실제로 무엇을 넘기는지 보여준다
-            docs = get_retriever(db, None, mode=generator.SEARCH_MODE).invoke(question)
-            print(f"--- 검색된 청크 {len(docs)}개 ---")
-            for d in docs:
-                print(f"[page={d.metadata.get('page')} category={d.metadata.get('category')}] "
-                      f"{d.page_content[:80]!r}")
-            print("--- format_docs() 결과 (프롬프트의 {context}) ---")
-            print(format_docs(docs))
-            print("---\n")
-
         printed = ""
+        search: dict = {}   # generator.answer()가 정한 검색 범위 (category, mode)
         try:
-            for text in generator.answer(question, db, history):
+            for text in generator.answer(
+                question, db, history,
+                on_search=lambda category, mode: search.update(category=category, mode=mode),
+            ):
                 print(text[len(printed):], end="", flush=True)   # 누적 텍스트에서 새로 생긴 부분만 출력
                 printed = text
         except KeyboardInterrupt:
@@ -97,6 +90,17 @@ def main() -> int:
             continue
         print("\n")
         history += [{"role": "user", "content": question}, {"role": "assistant", "content": printed}]
+
+        if debug and search and search["mode"] != "multi_query":
+            # answer()가 실제로 쓴 검색 범위(mode, category)로 다시 검색해, retriever가 넘긴 청크를 보여준다
+            docs = get_retriever(db, None, mode=search["mode"], category=search["category"]).invoke(question)
+            print(f"--- 검색 범위: {search['category'] or '학칙 전체'} (mode={search['mode']}) / 청크 {len(docs)}개 ---")
+            for d in docs:
+                print(f"[page={d.metadata.get('page')} category={d.metadata.get('category')}] "
+                      f"{d.page_content[:80]!r}")
+            print("--- format_docs() 결과 (프롬프트의 {context}) ---")
+            print(format_docs(docs))
+            print("---\n")
 
 
 if __name__ == "__main__":

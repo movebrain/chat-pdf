@@ -23,11 +23,24 @@ DESCRIPTION = (
 )
 
 # 검색 설정의 선택지: (화면에 보이는 이름, retriever.get_retriever()의 mode 값)
+# "주제 필터"는 질문을 AI가 주제(categories.py)로 분류한 뒤 그 주제의 청크만 검색한다.
 SEARCH_MODES = [
-    ("MMR: 서로 겹치지 않는 3개 (기본)", "mmr"),
-    ("기본: 가장 비슷한 4개", "basic"),
-    ("질문 확장: 여러 표현으로 검색 (느리고 비용 증가)", "multi_query"),
+    ("(a) 유사도", "basic"),
+    ("(b) 주제 필터", "policy"),
+    ("(c) MMR", "mmr"),
+    ("(d) 주제 필터+MMR", "policy_mmr"),
+    ("(e) 질문 확장", "multi_query"),
 ]
+
+# 검색 방식 드롭다운 아래에 보여줄 설명 (드롭다운 이름은 짧게 두고 자세한 설명은 여기에 둔다)
+SEARCH_MODE_HELP = """\
+- **(a) 유사도**: 가장 비슷한 4개
+- **(b) 주제 필터**: AI가 분류한 주제 안에서 4개
+- **(c) MMR**: 겹치지 않게 3개
+- **(d) 주제 필터+MMR**: 주제 안에서 겹치지 않게 3개 (기본)
+- **(e) 질문 확장**: 질문을 여러 표현으로 바꿔 검색 (느림)
+
+(b)(d)는 분류된 카테고리가 질문 아래에 표시됩니다."""
 
 EXAMPLES = [
     "서울대학교 휴학은 몇 학기까지 가능한가요?",
@@ -56,8 +69,8 @@ def render() -> SimpleNamespace:
                     choices=SEARCH_MODES,
                     value=SEARCH_MODE,
                     label="검색 방식",
-                    info="답변에 참고할 학칙 조각을 찾는 방법입니다.",
                 )
+                gr.Markdown(SEARCH_MODE_HELP)
 
         # 오른쪽: 대화 영역
         with gr.Column(scale=2):

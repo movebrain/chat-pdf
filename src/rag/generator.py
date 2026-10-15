@@ -11,9 +11,10 @@
     generator.answer()                      ← 이 파일
       │  ① 입력 검증        gr.Error → UI가 사용자에게 표시
       │  ② ChatOpenAI 생성   config.GENERATE_MODEL 사용, API 키는 환경변수 OPENAI_API_KEY
-      │  ③ retriever.get_retriever(db, llm, ...)  → 검색기
-      │  ④ chain.make_chatbot(retriever, llm)     → LCEL 체인
-      │  ⑤ chain.stream({question, history}) → 조각 단위 답변
+      │  ③ chain.choose_category(질문, llm)       → 주제 키 (실패하면 None = 전체 검색)
+      │  ④ retriever.get_retriever(db, llm, mode, category)  → 주제로 필터링된 검색기
+      │  ⑤ chain.make_chatbot(retriever, llm)     → LCEL 체인
+      │  ⑥ chain.stream({question, history}) → 조각 단위 답변
       ▼
     누적 문자열을 yield → UI가 화면에 계속 덮어써서 표시 (CLI는 마지막 yield만 출력)
 
@@ -25,7 +26,7 @@
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import gradio as gr
 from langchain_chroma import Chroma
@@ -37,7 +38,7 @@ from src import config
 
 # 체인 조립 함수. 입력 dict의 키(question/history/선택적 search_question)는 chain.py가 정한 계약이다.
 # chain.py의 make_chatbot() 안에서 prompt.get_prompt()와 retriever.format_docs()가 함께 쓰인다.
-from src.rag.chain import make_chatbot
+from src.rag.chain import choose_category, make_chatbot
 
 # 검색기 생성 함수. retriever.py의 get_retriever(db, llm, mode="basic")를 호출한다.
 # k, fetch_k 같은 세부 값은 retriever.py 안에서 모드별로 고정되어 있어 여기서 넘기지 않는다.
@@ -49,14 +50,18 @@ from src.rag.retriever import get_retriever
 # 여러 파일이 공유하는 값이 아니므로 config.py가 아니라 여기에 둔다.
 # ---------------------------------------------------------------------------
 
-# 검색 모드. retriever.get_retriever()의 mode 인자로 그대로 전달된다.
-#   "basic":       질문과 가장 비슷한 4개
-#   "mmr":         후보 10개 중 서로 겹치지 않는 3개 (카테고리 필터 없음)
-#   "multi_query": LLM으로 질문을 여러 개로 확장해 검색 (LLM 호출이 늘어 느리고 비쌈)
-#   "policy", "policy_mmr": metadata의 category가 get_retriever의 category 인자와 같은 문서만 검색.
-#       category를 고르는 choose_category() 호출이 아직 연결되어 있지 않아 쓰지 않는다.
+# 검색 모드. retriever.get_retriever()의 mode 인자로 그대로 전달된다. (웹 UI "검색 설정"의 5가지)
+#   "basic":       (a) 기본 — 질문과 가장 비슷한 4개
+#   "policy":      (b) 주제 필터 — 질문을 주제로 분류하고, 그 주제 안에서 가장 비슷한 4개
+#   "mmr":         (c) MMR — 후보 10개 중 서로 겹치지 않는 3개
+#   "policy_mmr":  (d) 주제 필터 + MMR — 그 주제 안에서 서로 겹치지 않는 3개
+#   "multi_query": (e) 질문 확장 — LLM으로 질문을 여러 표현으로 바꿔 검색 (느리고 비쌈)
 # 알 수 없는 모드를 넣으면 get_retriever()가 ValueError를 낸다.
-SEARCH_MODE = "mmr"
+SEARCH_MODE = "policy_mmr"
+
+# 주제 필터 모드 → 주제 분류에 실패했을 때 대신 쓸 필터 없는 모드.
+# 이 표에 있는 모드를 고르면 질문을 LLM(chain.choose_category)에 보내 주제를 받아 온다.
+FALLBACK_MODE = {"policy": "basic", "policy_mmr": "mmr"}
 
 
 def answer(
@@ -64,6 +69,7 @@ def answer(
     db: Chroma | None,
     history: list[dict] | None = None,
     mode: str | None = None,
+    on_search: Callable[[str | None, str], None] | None = None,
 ) -> Iterator[str]:
     """질문 한 건을 처리하고 누적된 답변 문자열을 순서대로 yield 한다.
 
@@ -84,6 +90,10 @@ def answer(
             CLI처럼 대화 기록이 없으면 생략한다.
         mode: 검색 모드(선택). retriever.get_retriever()의 mode로 전달된다.
             None이면 이 파일의 SEARCH_MODE를 쓴다. 웹 UI의 "검색 설정"에서 넘어온다.
+        on_search: 검색 범위가 정해지면 ``on_search(category, mode)``로 한 번 호출된다(선택).
+            category는 분류된 주제 키(필터를 쓰지 않았거나 분류에 실패하면 None),
+            mode는 실제로 사용한 검색 모드다. 첫 번째 yield보다 먼저 호출되므로
+            UI는 답변이 나오기 전에 분류 결과를 보여줄 수 있다.
 
     API 키는 인자로 받지 않고 환경변수 OPENAI_API_KEY에서 읽는다(ChatOpenAI가 직접 읽는다).
     환경변수 로드(.env)는 app.py가 담당한다.
@@ -116,7 +126,8 @@ def answer(
     # ② 언어 모델 생성
     # 모델을 만드는 일은 이 함수의 책임이다(chain.py는 만들어진 llm만 받는다).
     # API 키는 넘기지 않는다: ChatOpenAI가 환경변수 OPENAI_API_KEY를 직접 읽는다.
-    # 같은 llm 인스턴스를 두 곳이 공유한다:
+    # 같은 llm 인스턴스를 세 곳이 공유한다:
+    #   - choose_category(): 질문의 주제 분류
     #   - get_retriever(): mode="multi_query"일 때 질문 확장
     #   - make_chatbot(): 최종 답변 생성
     # temperature=0은 같은 질문에 같은 답이 나오도록 해 근거 기반 답변의 일관성을 높인다.
@@ -129,15 +140,39 @@ def answer(
     )
 
     # ------------------------------------------------------------------
-    # ③ 검색기 생성 → retriever.py의 get_retriever()
-    # db: 검색 대상 Chroma 벡터DB (store.build_db()가 만든 것)
-    # llm: multi_query 모드에서만 사용되고, 다른 모드에서는 무시된다.
-    # mode 인자가 없으면 이 파일 위쪽의 SEARCH_MODE 상수(기본값)를 쓴다.
+    # ③ 주제 자동 분류 → chain.py의 choose_category()  (주제 필터 모드일 때만)
+    # 질문을 LLM에 보내 categories.py의 주제 키(예: "status_curriculum") 하나를 받아 온다.
+    # 분류할 수 없으면 choose_category()가 None을 반환하고, 그때는 필터 없는 모드
+    # (FALLBACK_MODE: policy→basic, policy_mmr→mmr)로 바꿔 학칙 전체에서 검색한다.
+    # 현재 질문만 보내 분류한다. 앞 질문을 함께 보내면 대화 중의 엉뚱한 질문("맛집 추천")까지
+    # 앞 주제로 분류되기 때문이다. 그래서 "그럼 신청은 언제까지 해?"처럼 문장만으로 주제를
+    # 알 수 없는 후속 질문은 분류에 실패하고 학칙 전체에서 검색한다(실제 테스트에서 후속 질문은
+    # 전체 검색 쪽 답변이 더 나았다).
     # ------------------------------------------------------------------
-    retriever = get_retriever(db, llm, mode=mode or SEARCH_MODE)
+    mode = mode or SEARCH_MODE
+    category = None
+    if mode in FALLBACK_MODE:
+        category = choose_category(question, llm)
+        if category is None:
+            mode = FALLBACK_MODE[mode]
+
+    # 정해진 검색 범위를 UI(on_search)와 터미널에 알린다.
+    if on_search:
+        on_search(category, mode)
+    print(f"[generator] 검색 범위: {category or '학칙 전체'} (mode={mode})", flush=True)
 
     # ------------------------------------------------------------------
-    # ④ 체인 조립 → chain.py의 make_chatbot()
+    # ④ 검색기 생성 → retriever.py의 get_retriever()
+    # db: 검색 대상 Chroma 벡터DB (store.build_db()가 만든 것)
+    # llm: multi_query 모드에서만 사용되고, 다른 모드에서는 무시된다.
+    # category: 주제 필터 모드(policy/policy_mmr)에서만 쓰이고 다른 모드에서는 무시된다.
+    #   분류에 실패해 None일 때도 명시적으로 넘겨, get_retriever의 기본값
+    #   "tuition_discipline"이 실수로 쓰이지 않게 한다.
+    # ------------------------------------------------------------------
+    retriever = get_retriever(db, llm, mode=mode, category=category)
+
+    # ------------------------------------------------------------------
+    # ⑤ 체인 조립 → chain.py의 make_chatbot()
     # 반환되는 체인의 내부 흐름(chain.py):
     #   question → retriever → retriever.format_docs() → 프롬프트의 {context}
     #   question / history → prompt.get_prompt()의 {question} / MessagesPlaceholder("history")
@@ -147,7 +182,7 @@ def answer(
     chain = make_chatbot(retriever, llm)
 
     # ------------------------------------------------------------------
-    # ⑤ 스트리밍 실행과 누적 yield
+    # ⑥ 스트리밍 실행과 누적 yield
     # 입력 dict의 키는 chain.py가 읽는 이름과 정확히 같아야 한다.
     #   "question": 사용자가 쓴 원문 / "history": 이전 대화
     # 검색에는 question만 쓰이고 history는 답변 프롬프트에만 전달된다(chain.py 현재 구현).
