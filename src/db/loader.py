@@ -4,7 +4,7 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from .. import config
+from src import config
 
 
 def load_and_split(pdf_path: str) -> list[Document]:
