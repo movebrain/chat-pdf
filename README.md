@@ -12,12 +12,12 @@ PDF를 업로드하면 내용을 기반으로 질문에 답해주는 챗봇입�
 | ③ Embed | 임베딩 생성 | `src/db/store.py` | `build_db()` |
 | ④ Store | Chroma에 저장 | `src/db/store.py` | `build_db()` |
 | ⑤ Retrieve | 관련 청크 검색 | `src/rag/retriever.py` | `get_retriever()` |
-| ⑥ Generate | 답변 생성 (스트리밍) | `src/rag/generator.py` | `answer()` |
+| ⑥ Generate | 검색 체인을 실행해 답변 생성 (스트리밍) | `src/rag/generator.py` | `answer()` |
 
 ```
 PDF 업로드 ──▶ ①②③④ build_db() ──▶ gr.State(db)
                                         │
-질문 입력  ──▶ ⑤⑥ answer(question, key, db) ──▶ 화면에 실시간 출력
+질문 입력  ──▶ ⑤ 검색 ──▶ prompt/chain ──▶ ⑥ answer() ──▶ 화면에 실시간 출력
 ```
 
 ## 빠른 시작
@@ -49,7 +49,9 @@ chat-pdf/
 │   │   └── store.py     #   build_db()
 │   └── rag/             # 벡터DB → 답변
 │       ├── retriever.py #   get_retriever(), format_docs()
-│       └── generator.py #   answer()
+│       ├── prompt.py    #   get_prompt(): 역할·근거·출처 규칙
+│       ├── chain.py     #   make_chatbot(): LCEL RAG 체인
+│       └── generator.py #   answer(): 모델 준비와 Gradio 스트리밍
 ├── docs/
 │   ├── structure.md     # 담당 도메인, 의존 순서, 협업 규칙
 │   └── sources.md       # 참고 자료
@@ -58,15 +60,19 @@ chat-pdf/
     └── sample.pdf       # 팀 공용 테스트 PDF
 ```
 
-## 팀 구성 (2명씩 3파트)
+## 팀 구성
 
 | 파트 | 폴더 | 맡은 단계 | 넘겨주는 값 |
 | --- | --- | --- | --- |
 | **Gradio** | `src/ui.py`, `app.py` | 화면, 이벤트 연결 | — |
 | **DB 저장** | `src/db/` | ① ~ ④ | `db` (Chroma) |
-| **RAG** | `src/rag/` | ⑤ ~ ⑥ | 답변 텍스트 (yield) |
+| **RAG 검색** | `src/rag/retriever.py` | ⑤ 검색·문서 포매팅 | 검색기 / 문맥 문자열 |
+| **RAG 체인** | `src/rag/prompt.py`, `src/rag/chain.py` | 프롬프트·LCEL 연결 | 질문→답변 Runnable |
+| **RAG 실행** | `src/rag/generator.py` | 모델 생성·스트리밍 | 답변 텍스트 (yield) |
 
-파트 사이의 접점은 **함수 시그니처** 하나뿐입니다. 자기 폴더의 본문만 채우고, 시그니처를 바꿀 때는 영향받는 파트와 먼저 합의합니다. 자세한 작업 순서는 [docs/structure.md](docs/structure.md)를 참고하세요.
+RAG는 검색 담당 1명, 프롬프트와 체인 담당 1명(추가 인원), 실행·스트리밍 담당 1명으로 나눌 수 있습니다.
+파트 사이의 접점은 **함수 시그니처**로 고정하고, 시그니처를 바꿀 때는 영향받는 담당자와 먼저 합의합니다.
+자세한 역할 및 인자 계약은 [docs/structure.md](docs/structure.md)를 참고하세요.
 
 ## 모듈 간 인터페이스
 
@@ -76,6 +82,8 @@ chat-pdf/
 | `build_db` | `pdf_path`, `openai_key` | `(Chroma \| None, str)` → `outputs=[db_state, status]` 순서 |
 | `get_retriever` | `db`, `llm` | `BaseRetriever` |
 | `format_docs` | `docs` | `str` |
+| `get_prompt` | — | `ChatPromptTemplate` (`context`, `question` 변수) |
+| `make_chatbot` | `retriever`, `llm` | `Runnable[str, str]` |
 | `answer` | `question`, `openai_key`, `db` | `Iterator[str]` (yield마다 화면 갱신) |
 | `render` | — | `SimpleNamespace` (`openai_key`, `pdf_file`, `status`, `db_state`, `question`, `ask_btn`, `output`) |
 
