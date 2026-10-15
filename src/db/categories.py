@@ -1,17 +1,17 @@
-#""주제(category) 꼬리표.
+"""주제(category) 꼬리표.
 
-#쪽 번호 → 주제 dict로 꼬리표를 붙인다. loader.py가 PAGE_CATEGORY_MAP.get(쪽 번호)로 읽는다.
-#쪽 번호는 PDF에 인쇄된 번호(1부터)다. metadata['page']는 0부터이므로 +1 해서 찾는다.
-#주제 키 7개는 config.ROUTER_PROMPT의 키와 같아야 한다(라우터가 고른 키로 필터 검색).
+쪽 번호 → 주제 dict로 꼬리표를 붙인다. loader.py가 PAGE_CATEGORY_MAP.get(쪽 번호)로 읽는다.
+쪽 번호는 PDF에 인쇄된 번호(1부터)다. metadata['page']는 0부터이므로 +1 해서 찾는다.
+주제 키 7개는 config.ROUTER_PROMPT의 키와 같아야 한다(라우터가 고른 키로 필터 검색).
 
-#한 쪽에는 한 주제만 붙일 수 있어서, 주제가 섞인 쪽은 '그 쪽에서 비중이 큰 주제'로 정했다.
-#아래 쪽의 작은 부분은 주제 필터 검색에서 빠질 수 있다(서울대학교 학칙 2022.2.23 기준).
-#   2쪽: general            ← 제12조(총장)·제13조(부총장)는 organization
- # 12쪽: calendar_admission ← 제48조의6(시흥캠퍼스 발전위원회)은 organization
-  #15쪽: calendar_admission ← 제66조 ①② (휴학 신청 기한)은 status_curriculum
-  #19쪽: status_curriculum  ← 제84조(시험)·제85조 ①(성적평가)은 exam_graduation
-  #23쪽: tuition_discipline ← 제101조(학생의 의무)·제102조(간행물)는 special
-#"""
+한 쪽에는 한 주제만 붙일 수 있어서, 주제가 섞인 쪽은 '그 쪽에서 비중이 큰 주제'로 정했다.
+아래 쪽의 작은 부분은 주제 필터 검색에서 빠질 수 있다(서울대학교 학칙 2022.2.23 기준).
+   2쪽: general            ← 제12조(총장)·제13조(부총장)는 organization
+  12쪽: calendar_admission ← 제48조의6(시흥캠퍼스 발전위원회)은 organization
+  15쪽: calendar_admission ← 제66조 ①② (휴학 신청 기한)은 status_curriculum
+  19쪽: status_curriculum  ← 제84조(시험)·제85조 ①(성적평가)은 exam_graduation
+  23쪽: tuition_discipline ← 제101조(학생의 의무)·제102조(간행물)는 special
+"""
 
 # 주제 키 → 화면에 보여줄 이름
 # 꼬리표는 쪽 단위로 붙으므로, 괄호 안 범위는 PAGE_CATEGORY_MAP·PAGE_ARTICLES 기준 실제 범위다.
