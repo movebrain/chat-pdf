@@ -5,6 +5,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src import config
+from src.db.categories import PAGE_CATEGORY_MAP
 
 
 def load_and_split(pdf_path: str) -> list[Document]:
@@ -22,4 +23,9 @@ def load_and_split(pdf_path: str) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=config.CHUNK_SIZE, chunk_overlap=config.CHUNK_OVERLAP,
     )
-    return splitter.split_documents(pages)
+    texts = splitter.split_documents(pages)
+
+    for t in texts:
+        page_no = t.metadata.get("page", 0) + 1          # page는 0부터 시작하므로 +1
+        t.metadata["category"] = PAGE_CATEGORY_MAP.get(page_no, "기타")
+    return texts
