@@ -1,19 +1,44 @@
-"""[2] 진입점: 화면(ui) + 처리 함수(store, generator)를 이벤트로 연결한다."""
+"""[2] 진입점: 시작 시 PDF 임베딩을 한 번 하고, 화면(ui)에 답변 함수(generator)를 연결한다."""
 
-import gradio as gr
+import os
+import sys
+from functools import partial
+from pathlib import Path
 
-from src import ui
+from src import config, ui
 from src.db.store import build_db
 from src.rag.generator import answer
 
-with gr.Blocks(title="ChatPDF") as demo:
-    c = ui.render()
+try:  # 로컬 테스트용 .env. 설치돼 있을 때만 읽는다 (배포에서는 플랫폼 secret이 환경변수로 들어온다)
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
-    # inputs 순서 = 함수 매개변수 순서, outputs 순서 = 반환값 순서
-    c.pdf_file.upload(build_db, inputs=[c.pdf_file, c.openai_key], outputs=[c.db_state, c.status])
-    ask_inputs = [c.question, c.openai_key, c.db_state]
-    c.ask_btn.click(answer, inputs=ask_inputs, outputs=c.output)
-    c.question.submit(answer, inputs=ask_inputs, outputs=c.output)
+
+def main() -> int:
+    if load_dotenv:
+        load_dotenv()
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("OPENAI_API_KEY 환경변수가 없습니다. .env.example을 참고하세요.", file=sys.stderr)
+        return 1
+    if not Path(config.PDF_PATH).is_file():
+        print(f"PDF 파일이 없습니다: {config.PDF_PATH}", file=sys.stderr)
+        return 1
+
+    print(f"PDF 임베딩 중... ({Path(config.PDF_PATH).name})")
+    try:
+        db = build_db(config.PDF_PATH)
+    except ValueError as e:  # 문서 검수 실패: 조·페이지·이유가 담긴 메시지
+        print(f"문서 검수 실패: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # 임베딩 실패 등: 원문 메시지에 키가 섞일 수 있어 종류만 알린다
+        print(f"PDF 임베딩에 실패했습니다. ({type(e).__name__})", file=sys.stderr)
+        return 1
+
+    ui.run(partial(answer, db=db))
+    return 0
+
 
 if __name__ == "__main__":
-    demo.launch()
+    sys.exit(main())
