@@ -1,7 +1,6 @@
 """⑤ Retrieve: 벡터DB에서 질문과 관련 있는 Document를 찾고 문맥 문자열로 정리한다."""
 
-from store import db, llm
-from src.db.categories import CATEGORY_NAMES, PAGE_CATEGORY_MAP, PAGE_ARTICLES
+from src.db.categories import CATEGORY_NAMES
 
 # ============================================================
 # Retrieve 검색기 만들기
@@ -92,6 +91,13 @@ def format_docs(docs):
         blocks.append(f"[검색된 참고자료 목록]\n{sources}")
 
     return "\n\n".join(blocks)
+
+
+# 쪽 번호에 +1, 중복 제거, 정렬 → `서울대학교 학칙 p.16, p.17`
+# format_docs()가 [검색된 참고자료 목록]을 만들 때 호출한다.
+def format_sources(docs):
+    pages = sorted({d.metadata.get("page", 0) + 1 for d in docs})   # +1, 중복 제거, 정렬
+    return "서울대학교 학칙 " + ", ".join(f"p.{p}" for p in pages)
 
 
 
